@@ -6,7 +6,7 @@ use egui::accesskit::{Role, TreeUpdate};
 use tabletist_db::{Driver, ObjectInfo, ObjectKind, ObjectRef};
 
 use super::sidebar::{GUIDE, INDENT, NAME_IN, PAST_GUIDE};
-use crate::backend::{Command, Event};
+use crate::backend::{Command, Event, RequestId, SessionId};
 use crate::model::{Action, ConnTabId, TreeKey, TreeNode};
 use crate::testing::{Harness, bounds, last_sent, node};
 use crate::theme::Look;
@@ -345,4 +345,73 @@ fn a_schemas_objects_stand_one_step_in_from_its_name() {
         drawn(&harness, "covers"),
         FOLD + INDENT + GUIDE + PAST_GUIDE + NAME_IN
     ));
+}
+
+/// The objects of every folder are read once the schemas are listed, the
+/// folders left folded, so quick open finds a table of a schema that was
+/// never unfolded.
+#[test]
+fn quick_open_finds_a_table_of_a_schema_never_unfolded() {
+    let mut harness = Harness::new();
+    let tab = harness.connect_fake();
+    harness.app.workspace_mut(tab).unwrap().driver = Driver::Postgres;
+    harness.app.apply(Action::RefreshTree(tab));
+    let (session, request) = harness
+        .app
+        .backend
+        .sent
+        .iter()
+        .rev()
+        .find_map(|command| match command {
+            Command::ListSchemas { session, request } => Some((*session, *request)),
+            _ => None,
+        })
+        .expect("the schemas are asked for again");
+    harness.app.apply(Action::Backend(Event::Schemas {
+        session,
+        request,
+        result: Ok(vec!["archive".into(), "main".into(), "pg_catalog".into()]),
+    }));
+    // `archive` is asked for, though folded; the system's schema is not.
+    let asked: Vec<(SessionId, RequestId, String)> = harness
+        .app
+        .backend
+        .sent
+        .iter()
+        .filter_map(|command| match command {
+            Command::ListObjects {
+                session,
+                request,
+                schema,
+            } => Some((*session, *request, schema.clone())),
+            _ => None,
+        })
+        .collect();
+    let (session, request, _) = asked
+        .iter()
+        .rev()
+        .find(|(_, _, schema)| schema == "archive")
+        .cloned()
+        .expect("the folded schema's objects are asked for");
+    assert!(!asked.iter().any(|(_, _, schema)| schema == "pg_catalog"));
+    harness.app.apply(Action::Backend(Event::Objects {
+        session,
+        request,
+        schema: "archive".into(),
+        result: Ok(vec![ObjectInfo {
+            name: "old_orders".into(),
+            kind: ObjectKind::Table,
+            estimated_rows: None,
+        }]),
+    }));
+    assert!(!unfolded(&harness, tab, "archive"));
+    assert!(!harness.has("old_orders, table"));
+
+    harness.app.apply(Action::OpenQuickOpen);
+    harness.app.apply(Action::QuickOpenTyped("old_ord".into()));
+    let tree = harness.settle();
+    let found = crate::testing::labels(&tree)
+        .iter()
+        .any(|label| label.contains("old_orders"));
+    assert!(found, "quick open lists the folded schema's table");
 }

@@ -2215,6 +2215,9 @@ fn names_asked_for_again_show_on_an_open_list_as_loading() {
 #[test]
 fn schemas_that_arrive_join_an_open_list() {
     let (mut harness, tab) = editor();
+    // One schema's tables are asked for, as `sidebar.schema_folders = false`
+    // has it: with folders, `mart`'s would be read behind its folder too.
+    harness.app.workspace_mut(tab).unwrap().tree.schema_folders = false;
     paste(&mut harness, "select * from ");
     type_text(&mut harness, "ma");
     assert_eq!(labels(&harness, tab), ["main"]);

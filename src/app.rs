@@ -40,6 +40,7 @@ mod keyboard_tests;
 mod labels;
 mod menu;
 mod quick_open;
+mod schema_folders;
 #[cfg(test)]
 mod startup_tests;
 mod updates;
@@ -4522,6 +4523,7 @@ impl App {
                 if let Some(schema) = default {
                     self.expand_schema(tab, &schema);
                 }
+                self.read_folders(tab);
                 self.send_databases_after_tree(tab);
             }
             Event::Objects {
@@ -5865,6 +5867,18 @@ impl App {
                 if let ConnTabContent::Workspace(workspace) = &mut tab.content {
                     workspace.tree.schema_folders = folders;
                 }
+            }
+        }
+        if (old.schema_folders, old.show_system_schemas)
+            != (
+                self.settings.schema_folders,
+                self.settings.show_system_schemas,
+            )
+        {
+            // Folders that were not there before: their objects are read.
+            let tabs: Vec<ConnTabId> = self.tabs.iter().map(|tab| tab.id).collect();
+            for tab in tabs {
+                self.read_folders(tab);
             }
         }
         if (old.sql_limit, old.sql_timeout_secs)
