@@ -6,13 +6,14 @@ nav_order: 3
 
 ## The sidebar
 
-The sidebar shows the tables and views of every schema: where a database
-has more than one, each is a folder. Their tables are read once you connect (those of the
+The sidebar shows the tables and views of every schema, each schema a
+folder, also where a database has only one. Their tables are read once you connect (those of the
 first 200 schemas; the rest when you first open their folder), so quick
 open and the filter find a table in a folder you never opened. Above the
 folders the sidebar says how many tables and views they hold, or how
-many the filter keeps. The schema the connection starts on is open, and a database with
-one schema shows its tables without a folder. Tables
+many the filter keeps. The schema the connection starts on is open. A SQLite
+file has folders only once another file is attached to it: alone, its
+tables stand without one. Tables
 that share a prefix, such as `book_`, fold into a group. Inside an open
 group the prefix is dropped (`book_covers` shows as `covers`), the group's
 tables stand in from its name, and a line runs along them; the pointer

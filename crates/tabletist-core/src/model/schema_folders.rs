@@ -4,23 +4,26 @@
 use super::{Tree, TreeNode, TreeRow};
 use tabletist_db::Driver;
 
-/// Whether the engine's schemas can stand as folders in the tree:
-/// PostgreSQL's schemas, MySQL's databases, SQLite's `main` and the files
-/// attached to it, BigQuery's datasets. A new engine decides here.
-pub fn schema_folders(driver: Driver) -> bool {
+/// How many schemas an engine lists before they stand as folders in the
+/// tree. PostgreSQL's schemas, MySQL's databases and BigQuery's datasets
+/// are folders even when there is one: the tree is the same whatever the
+/// database holds. SQLite's one schema is `main`, which every file has and
+/// nobody named: it has folders once a file is attached to it. A new
+/// engine decides here.
+pub fn folders_from(driver: Driver) -> usize {
     match driver {
-        Driver::Postgres | Driver::MySql | Driver::Sqlite | Driver::BigQuery => true,
+        Driver::Postgres | Driver::MySql | Driver::BigQuery => 1,
+        Driver::Sqlite => 2,
     }
 }
 
 impl Tree {
     /// Whether the tree lists every schema as a folder: the setting asks
-    /// for it, and there is more than one schema to tell apart. A single
-    /// schema's objects stand without a folder.
+    /// for it, and the engine has as many schemas as it takes
+    /// ([`folders_from`]).
     pub fn folders(&self, driver: Driver, show_system: bool) -> bool {
         self.schema_folders
-            && schema_folders(driver)
-            && self.visible_schemas(driver, show_system).len() > 1
+            && self.visible_schemas(driver, show_system).len() >= folders_from(driver)
     }
 
     /// The schemas whose prefix groups fold and unfold together: each
@@ -183,16 +186,34 @@ mod tests {
     }
 
     #[test]
-    fn a_single_schema_stands_without_a_folder() {
+    fn a_single_schema_is_a_folder_too_but_for_sqlites_main() {
         let mut tree = tree();
         tree.schemas.value = Some(vec!["pg_catalog".into(), "public".into()]);
-        assert!(!tree.folders(Driver::Postgres, false));
-        assert_eq!(drawn(&tree, false), ["authors", "▸ book_"]);
-        // The system's schemas, once shown, make it one of two.
+        for driver in [Driver::Postgres, Driver::MySql, Driver::BigQuery] {
+            assert!(tree.folders(driver, false), "{driver:?}");
+        }
+        assert_eq!(drawn(&tree, false), ["▾ public", "  authors", "  ▸ book_"]);
         assert_eq!(
             drawn(&tree, true),
             ["▸ pg_catalog", "▾ public", "  authors", "  ▸ book_"]
         );
+        // No schemas listed, no folders.
+        tree.schemas.value = Some(Vec::new());
+        assert!(!tree.folders(Driver::Postgres, false));
+
+        // SQLite's `main` alone has none; a file attached makes two.
+        let mut lone = self::tree();
+        lone.schemas.value = Some(vec!["public".into()]);
+        assert!(!lone.folders(Driver::Sqlite, false));
+        assert_eq!(
+            lone.visible_rows(Driver::Sqlite, false)[0].node,
+            TreeNode::Object(
+                tabletist_db::ObjectRef::new("public", "authors"),
+                ObjectKind::Table
+            )
+        );
+        lone.schemas.value = Some(vec!["archive".into(), "public".into()]);
+        assert!(lone.folders(Driver::Sqlite, false));
     }
 
     #[test]
@@ -307,17 +328,5 @@ mod tests {
         tree.nodes.insert("pg_catalog".into(), catalog);
         assert_eq!(tree.objects_listed(Driver::Postgres, false), 4);
         assert_eq!(tree.objects_listed(Driver::Postgres, true), 5);
-    }
-
-    #[test]
-    fn every_engine_has_folders() {
-        for driver in [
-            Driver::Postgres,
-            Driver::MySql,
-            Driver::Sqlite,
-            Driver::BigQuery,
-        ] {
-            assert!(schema_folders(driver));
-        }
     }
 }

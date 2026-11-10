@@ -283,7 +283,7 @@ check = "daily"
 | `safety.confirm_close_edits` | `true` asks before pending changes are dropped; `false` discards them without asking. While a save runs, what would drop them does nothing until it ends, and closing the window asks either way | `true` |
 | `safety.idle_disconnect` | `"never"`, `"5m"`, `"15m"`, `"30m"`, `"1h"` or `"4h"`. A connection left unused that long has its server session closed; its tabs stay as they were, and it connects again when you next refresh, page, open a table, run or save. Never while changes are pending or something is still loading, running or saving | `"30m"` |
 | `sidebar.show_system_schemas` | `true` shows schemas such as `pg_catalog` and `information_schema` | `false` |
-| `sidebar.schema_folders` | `true` lists every schema as a folder in the sidebar, where a database has more than one. `false` shows one schema at a time, picked from a menu above the list. Written to the file only as `false` | `true` |
+| `sidebar.schema_folders` | `true` lists every schema as a folder in the sidebar (a SQLite file's once another is attached). `false` shows one schema at a time, picked from a menu above the list. Written to the file only as `false` | `true` |
 | `editor.run.new_tab` | `"read-only"` or `"connection"` | `"read-only"` |
 | `editor.run.limit` | 1 to 10000 rows for each statement, or `0` for no limit | `1000` |
 | `editor.run.timeout` | `"1s"` … `"3600s"` or `"1m"` … `"60m"`, or `"off"`. A longer one is a line that cannot be read | `"30s"` |

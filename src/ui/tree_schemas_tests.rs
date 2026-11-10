@@ -175,15 +175,25 @@ fn the_setting_off_brings_back_the_menu_of_schemas() {
     assert!(node(&tree, "public, schema", Role::TreeItem).is_some());
 }
 
-/// A single schema stands without a folder, under the menu that names it.
+/// SQLite's `main` alone stands without a folder, under the menu that
+/// names it: every file has it. Another engine's one schema is a folder,
+/// as its several are.
 #[test]
-fn one_schema_has_no_folder() {
+fn one_schema_is_a_folder_but_for_sqlites_main() {
     let mut harness = Harness::new();
-    harness.connect_fake();
+    let tab = harness.connect_fake();
     let tree = harness.settle();
     assert_eq!(node(&tree, "main, schema", Role::TreeItem), None);
     assert!(node(&tree, "Schema", Role::ComboBox).is_some());
     assert_eq!(levels(&tree)[0].1, 1);
+
+    harness.app.workspace_mut(tab).unwrap().driver = Driver::Postgres;
+    let tree = harness.settle();
+    assert!(node(&tree, "main, schema", Role::TreeItem).is_some());
+    assert_eq!(node(&tree, "Schema", Role::ComboBox), None);
+    let levels = levels(&tree);
+    assert_eq!(levels[0], ("main, schema".to_owned(), 1));
+    assert_eq!(levels[1].1, 2);
 }
 
 /// A click on a folded schema asks for its objects, once, and shows them;

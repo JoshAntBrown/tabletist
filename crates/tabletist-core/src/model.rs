@@ -6610,7 +6610,7 @@ impl std::fmt::Debug for PasswordPrompt {
 }
 
 mod schema_folders;
-pub use schema_folders::schema_folders;
+pub use schema_folders::folders_from;
 
 #[cfg(test)]
 mod tests {
