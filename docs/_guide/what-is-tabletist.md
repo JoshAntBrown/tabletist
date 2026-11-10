@@ -23,7 +23,7 @@ Windows.
   system keyring, or are asked for when you connect. BigQuery signs in
   with a service-account key file or Google Cloud's default credentials.
   [Read about connections]({% link _reference/connections.md %}).
-- **Browses tables.** A sidebar of one schema's tables and views, quick
+- **Browses tables.** A sidebar of each schema's tables and views, quick
   open to find any of them by name, a data grid with sorting, filters and
   paging done by the server, a row panel that shows every field of a row,
   and Structure and DDL views.

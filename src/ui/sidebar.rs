@@ -139,8 +139,8 @@ fn tree_inset(look: &Look) -> f32 {
 /// A tree row's height: groups stand taller than their objects.
 fn row_height(row: &TreeRow, look: &Look) -> f32 {
     match (&row.node, look.terminal) {
-        (TreeNode::Group(..), true) => 26.0,
-        (TreeNode::Group(..), false) => 28.0,
+        (TreeNode::Group(..) | TreeNode::Schema(_), true) => 26.0,
+        (TreeNode::Group(..) | TreeNode::Schema(_), false) => 28.0,
         _ => look.tree_row,
     }
 }
@@ -208,7 +208,12 @@ pub fn show(
     let schemas = workspace
         .tree
         .visible_schemas(workspace.driver, show_system);
-    let shown = workspace.tree.shown_schema(workspace.driver, show_system);
+    // Every schema is a folder in the tree: there is none to pick above it.
+    let folders = workspace.tree.folders(workspace.driver, show_system);
+    let shown = workspace
+        .tree
+        .shown_schema(workspace.driver, show_system)
+        .filter(|_| !folders);
     let flat = workspace.tree.flat;
     let shown_loading = shown
         .as_ref()
@@ -849,7 +854,8 @@ struct SchemaHeader<'a> {
     palette: &'a Palette,
 }
 
-/// The schema picker, the tree/flat switch and Refresh.
+/// The schema picker (where the tree has no folder for each schema), the
+/// tree/flat switch and Refresh.
 #[allow(clippy::too_many_arguments)] // one call site; the pieces are unrelated
 fn schema_header(
     ui: &mut egui::Ui,
@@ -1063,11 +1069,14 @@ pub(crate) struct Places {
 /// step past it; a grouped object's highlight 4 past the guide and its
 /// name 14 into that, so it stands in from its group's name. Terminal: the mark 4 and 8 in, a
 /// group's name 6 after it, and in the tree every object two cells
-/// further, a grouped one with `│` in the first of them.
+/// further, a grouped one with `│` in the first of them. Under a schema's
+/// folder all of it stands one step further in.
 pub(crate) fn places(row: &TreeRow, flat: bool, look: &Look, glyph: f32, cell: f32) -> Places {
     let inset = tree_inset(look);
-    let fold = inset + 8.0;
-    let grouped = row.depth > 0;
+    // Under a schema's folder the marks and names stand one step further
+    // in; the highlight of a row that is in no group stays the row's.
+    let fold = inset + 8.0 + if row.in_schema { INDENT } else { 0.0 };
+    let grouped = row.depth > u8::from(row.in_schema);
     if look.terminal {
         let name = fold + glyph + 6.0;
         let label = match row.node {
@@ -1182,6 +1191,7 @@ fn tree_row(
                 .replace("{name}", &label)
         }
         TreeNode::Object(_, kind) => format!("{full_name}, {}", kind_name(locale, *kind)),
+        TreeNode::Schema(_) => gettext(locale, "{name}, schema").replace("{name}", &label),
         TreeNode::Empty(_) => label.to_string(),
     };
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &name));
@@ -1275,7 +1285,7 @@ fn tree_row(
                 palette.faint
             },
         ),
-        TreeNode::Empty(_) => (None, palette.dim),
+        TreeNode::Schema(_) | TreeNode::Empty(_) => (None, palette.dim),
     };
     let trailing_role = match (&row.node, look.terminal) {
         (TreeNode::Group(..), true) => TextRole::OCaption,
@@ -1295,8 +1305,10 @@ fn tree_row(
     // the selected one medium in the strong accent (macOS) or in the text
     // colour among muted ones (terminal).
     let (role, color) = match row.node {
-        TreeNode::Group(..) if look.terminal => (TextRole::OGroup, palette.text),
-        TreeNode::Group(..) => (TextRole::MonoGroup, palette.text),
+        TreeNode::Group(..) | TreeNode::Schema(_) if look.terminal => {
+            (TextRole::OGroup, palette.text)
+        }
+        TreeNode::Group(..) | TreeNode::Schema(_) => (TextRole::MonoGroup, palette.text),
         _ if selected && look.terminal => (TextRole::OBody, palette.text),
         _ if selected => (TextRole::UiBodyStrong, palette.accent_hover),
         _ if look.terminal => (TextRole::OBody, palette.secondary),
@@ -1338,6 +1350,12 @@ fn tree_row(
                 tab,
                 schema: schema.clone(),
                 prefix: prefix.clone(),
+            });
+        }
+        TreeNode::Schema(schema) if response.clicked() => {
+            actions.push(Action::ToggleSchema {
+                tab,
+                schema: schema.clone(),
             });
         }
         TreeNode::Object(object, kind) => {

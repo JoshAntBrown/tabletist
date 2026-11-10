@@ -3836,6 +3836,9 @@ pub struct Tree {
     pub schema: Option<String>,
     /// List objects flat rather than in prefix groups.
     pub flat: bool,
+    /// The setting that lists every schema as a folder: see
+    /// [`Tree::folders`].
+    pub schema_folders: bool,
 }
 
 /// Where the arrow keys go: the pane the user last worked in.
@@ -3924,6 +3927,8 @@ pub enum TreePick {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TreeNode {
+    /// A schema's folder, where the tree lists every schema.
+    Schema(String),
     /// "No tables or views" in a loaded schema that has none.
     Empty(String),
     /// Objects of a schema sharing a name prefix: the schema, the prefix
@@ -3946,6 +3951,8 @@ pub struct TreeRow {
     pub expanded: Option<bool>,
     pub loading: bool,
     pub error: Option<String>,
+    /// Under a schema's folder: drawn one step further in.
+    pub in_schema: bool,
 }
 
 /// Objects sorted into prefix groups: `book_authors` and `book_reviews`
@@ -4069,31 +4076,42 @@ impl Tree {
     }
 
     /// The lines to draw: the shown schema's objects, in prefix groups or
-    /// flat. A filter shows every match, unfolded.
+    /// flat, or every schema's folder with its objects under it. A filter
+    /// shows every match, unfolded.
     pub fn visible_rows(&self, driver: Driver, show_system: bool) -> Vec<TreeRow> {
+        let mut rows = Vec::new();
+        if self.folders(driver, show_system) {
+            self.folder_rows(driver, show_system, &mut rows);
+        } else if let Some(schema) = self.shown_schema(driver, show_system) {
+            self.schema_rows(&schema, 0, &mut rows);
+        }
+        rows
+    }
+
+    /// The lines of one schema's objects, the outermost at `base`.
+    fn schema_rows(&self, schema: &str, base: u8, rows: &mut Vec<TreeRow>) {
         let needle = self.filter.trim().to_lowercase();
         let filtering = !needle.is_empty();
-        let mut rows = Vec::new();
-        let Some(schema) = self.shown_schema(driver, show_system) else {
-            return rows;
-        };
+        let in_schema = base > 0;
+        let schema = schema.to_owned();
         let Some(node) = self.nodes.get(&schema) else {
-            return rows;
+            return;
         };
         let Some(objects) = node.objects.value.as_ref() else {
-            return rows;
+            return;
         };
         if objects.is_empty() {
             rows.push(TreeRow {
                 node: TreeNode::Empty(schema.clone()),
-                depth: 0,
+                depth: base,
                 label: "No tables or views".into(),
                 count: None,
                 expanded: None,
                 loading: false,
                 error: None,
+                in_schema,
             });
-            return rows;
+            return;
         }
         let matching: Vec<&ObjectInfo> = objects
             .iter()
@@ -4110,18 +4128,19 @@ impl Tree {
             expanded: None,
             loading: false,
             error: None,
+            in_schema,
         };
         if self.flat {
             let mut sorted = matching;
             sorted.sort_by(|a, b| a.name.cmp(&b.name));
             for object in sorted {
-                rows.push(object_row(object, 0, &object.name));
+                rows.push(object_row(object, base, &object.name));
             }
-            return rows;
+            return;
         }
         for entry in group_objects(&matching) {
             match entry {
-                Entry::Object(object) => rows.push(object_row(object, 0, &object.name)),
+                Entry::Object(object) => rows.push(object_row(object, base, &object.name)),
                 Entry::Group {
                     prefix,
                     label,
@@ -4130,22 +4149,23 @@ impl Tree {
                     let open = filtering || node.open_groups.contains(&prefix);
                     rows.push(TreeRow {
                         node: TreeNode::Group(schema.clone(), prefix.clone()),
-                        depth: 0,
+                        depth: base,
                         label,
                         count: Some(objects.len()),
                         expanded: Some(open),
                         loading: false,
                         error: None,
+                        in_schema,
                     });
                     if open {
+                        let depth = base + 1;
                         for object in objects {
-                            rows.push(object_row(object, 1, short_name(&object.name, &prefix)));
+                            rows.push(object_row(object, depth, short_name(&object.name, &prefix)));
                         }
                     }
                 }
             }
         }
-        rows
     }
 
     /// Unfolds the group `object` sits in, so the sidebar shows it.
@@ -6588,6 +6608,9 @@ impl std::fmt::Debug for PasswordPrompt {
             .finish()
     }
 }
+
+mod schema_folders;
+pub use schema_folders::schema_folders;
 
 #[cfg(test)]
 mod tests {

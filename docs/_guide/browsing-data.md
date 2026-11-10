@@ -6,7 +6,10 @@ nav_order: 3
 
 ## The sidebar
 
-The sidebar shows the tables and views of one schema at a time. Tables
+The sidebar shows the tables and views of every schema: where a database
+has more than one, each is a folder, and its tables load when you first
+open it. The schema the connection starts on is open, and a database with
+one schema shows its tables without a folder. Tables
 that share a prefix, such as `book_`, fold into a group. Inside an open
 group the prefix is dropped (`book_covers` shows as `covers`), the group's
 tables stand in from its name, and a line runs along them; the pointer
@@ -24,7 +27,8 @@ filters its list.
 
 System schemas such as `pg_catalog` and `information_schema` are hidden.
 [A setting]({% link _reference/settings-and-files.md %}#the-settings-file)
-shows them.
+shows them, and another shows one schema at a time, picked from a menu
+above the list, in place of the folders.
 
 ## The data grid
 

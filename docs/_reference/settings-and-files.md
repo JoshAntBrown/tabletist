@@ -283,6 +283,7 @@ check = "daily"
 | `safety.confirm_close_edits` | `true` asks before pending changes are dropped; `false` discards them without asking. While a save runs, what would drop them does nothing until it ends, and closing the window asks either way | `true` |
 | `safety.idle_disconnect` | `"never"`, `"5m"`, `"15m"`, `"30m"`, `"1h"` or `"4h"`. A connection left unused that long has its server session closed; its tabs stay as they were, and it connects again when you next refresh, page, open a table, run or save. Never while changes are pending or something is still loading, running or saving | `"30m"` |
 | `sidebar.show_system_schemas` | `true` shows schemas such as `pg_catalog` and `information_schema` | `false` |
+| `sidebar.schema_folders` | `true` lists every schema as a folder in the sidebar, where a database has more than one. `false` shows one schema at a time, picked from a menu above the list. Written to the file only as `false` | `true` |
 | `editor.run.new_tab` | `"read-only"` or `"connection"` | `"read-only"` |
 | `editor.run.limit` | 1 to 10000 rows for each statement, or `0` for no limit | `1000` |
 | `editor.run.timeout` | `"1s"` … `"3600s"` or `"1m"` … `"60m"`, or `"off"`. A longer one is a line that cannot be read | `"30s"` |
@@ -314,7 +315,7 @@ check = "daily"
 | `updates.check` | `"daily"`, `"weekly"` or `"never"`. `"never"` checks only when you ask | `"daily"` |
 | `updates.skip` | A version, `"0.4.0"` (a `v` before it is read too): the one **Skip this version** stops offering. An empty string skips none | Not set |
 
-`show_system_schemas` is set only in the file, and so is a pin by a
+`show_system_schemas` and `schema_folders` are set only in the file, and so is a pin by a
 name or a path other than the Omarchy theme of the moment, and a font by
 its fontconfig name. The SQL editor's **Limit** and **Timeout** menus set
 `editor.run.limit` and `editor.run.timeout`, which every open SQL editor
