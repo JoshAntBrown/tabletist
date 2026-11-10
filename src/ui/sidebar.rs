@@ -214,6 +214,17 @@ pub fn show(
         .tree
         .shown_schema(workspace.driver, show_system)
         .filter(|_| !folders);
+    // Where the picked schema's name stood: how many objects the folders
+    // hold, or how many of them the filter keeps.
+    let heading = folders.then(|| {
+        if workspace.tree.filter.trim().is_empty() {
+            workspace.tree.objects_listed(workspace.driver, show_system)
+        } else {
+            rows.iter()
+                .filter(|row| matches!(row.node, TreeNode::Object(..)))
+                .count()
+        }
+    });
     let flat = workspace.tree.flat;
     let shown_loading = shown
         .as_ref()
@@ -350,6 +361,7 @@ pub fn show(
                     locale,
                     look: &look,
                     palette: &palette,
+                    objects: heading,
                 },
                 &mut actions,
             );
@@ -852,6 +864,9 @@ struct SchemaHeader<'a> {
     locale: Locale,
     look: &'a Look,
     palette: &'a Palette,
+    /// How many objects the tree's folders hold, where it lists every
+    /// schema and there is none to pick: "Objects" and the count.
+    objects: Option<usize>,
 }
 
 /// The schema picker (where the tree has no folder for each schema), the
@@ -871,6 +886,7 @@ fn schema_header(
         locale,
         look,
         palette,
+        objects,
     } = skin;
     let width = ui.available_width();
     // macOS: a rule, then 8 above and 4 below a 28 pt row, 16 in and 8 from
@@ -939,11 +955,24 @@ fn schema_header(
             });
         }
     }
-    // Right to left, 8 in: Reload (macOS, 28 square), 2 apart, then the
-    // tree/flat switch.
+    // No schema to pick: what the folders hold, and how many.
+    if shown.is_none()
+        && let Some(count) = objects
+    {
+        let label =
+            widgets::section_label(&gettext(locale, "Objects"), look, palette).layout(ui.ctx());
+        let after = left + label.width() + 6.0;
+        label.paint_left(ui.painter(), left, center);
+        let role = TextRole::pick(look, TextRole::ColumnType, TextRole::OCaption);
+        let count = Text::one(look, role, &count.to_string(), palette.dim);
+        widgets::paint_text(ui, after, center, count);
+    }
+    // Right to left: Reload (macOS, the button's 24 square, on the row's
+    // centre, its icon's edge 12 in as the search field's is), 4 apart,
+    // then the tree/flat switch.
     let mut right = rect.right() - 8.0;
     if !look.terminal {
-        let refresh = Rect::from_min_size(pos2(right - 28.0, center - 14.0), vec2(28.0, 28.0));
+        let refresh = Rect::from_min_size(pos2(right - 24.0, center - 12.0), vec2(24.0, 24.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(refresh));
         if loading {
             egui::Spinner::new().size(RELOAD_SPINNER).paint_at(
@@ -966,7 +995,7 @@ fn schema_header(
         {
             actions.push(Action::RefreshTree(tab));
         }
-        right = refresh.left() - 2.0;
+        right = refresh.left() - 4.0;
     }
     let (segments, segment) = if look.terminal {
         (

@@ -35,6 +35,15 @@ impl Tree {
             .collect()
     }
 
+    /// How many objects the schemas listed hold, of those read.
+    pub fn objects_listed(&self, driver: Driver, show_system: bool) -> usize {
+        self.visible_schemas(driver, show_system)
+            .iter()
+            .filter_map(|schema| self.nodes.get(schema)?.objects.value.as_ref())
+            .map(Vec::len)
+            .sum()
+    }
+
     /// A folder for each schema, and under each unfolded one its objects.
     /// A filter keeps the schemas that hold a match among the objects
     /// loaded, unfolded.
@@ -286,6 +295,18 @@ mod tests {
             tree.group_schemas(Driver::Postgres, false),
             ["archive", "public"]
         );
+    }
+
+    #[test]
+    fn the_objects_of_the_schemas_shown_are_counted_folded_or_not() {
+        let mut tree = tree();
+        // `public`'s three and folded `archive`'s one.
+        assert_eq!(tree.objects_listed(Driver::Postgres, false), 4);
+        let mut catalog = SchemaNode::default();
+        catalog.objects.value = Some(vec![table("pg_class")]);
+        tree.nodes.insert("pg_catalog".into(), catalog);
+        assert_eq!(tree.objects_listed(Driver::Postgres, false), 4);
+        assert_eq!(tree.objects_listed(Driver::Postgres, true), 5);
     }
 
     #[test]

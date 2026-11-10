@@ -415,3 +415,47 @@ fn quick_open_finds_a_table_of_a_schema_never_unfolded() {
         .any(|label| label.contains("old_orders"));
     assert!(found, "quick open lists the folded schema's table");
 }
+
+/// Where the picked schema's name stood, the header says what the folders
+/// hold and how many: the objects read, or those a filter keeps.
+#[test]
+fn the_header_counts_the_objects_where_the_schemas_name_stood() {
+    let (mut harness, tab) = schemas(Look::macos());
+    harness.settle();
+    let heading = harness.painted_rect("OBJECTS").expect("the heading");
+    let count = harness.painted_rect("11").expect("the count");
+    assert!(count.left() > heading.right(), "{heading:?} {count:?}");
+    assert!(close(count.center().y, heading.center().y));
+    let name = harness.painted_rect("public").expect("the folder's name");
+    assert!(heading.bottom() <= name.top(), "{heading:?} {name:?}");
+
+    harness.app.workspace_mut(tab).unwrap().tree.filter = "book".into();
+    harness.settle();
+    assert!(harness.painted_rect("6").is_some(), "the filter's matches");
+
+    // One schema at a time: its name is there, and no heading.
+    settings_file(&mut harness, "[sidebar]\nschema_folders = false\n");
+    harness.settle();
+    assert!(harness.painted_rect("OBJECTS").is_none());
+}
+
+/// Reload stands on the row's centre with the tree/flat switch, and its
+/// icon ends where the search field does, 12 in.
+#[test]
+fn reload_is_in_line_with_the_switch_and_the_search_field() {
+    let (mut harness, _) = schemas(Look::macos());
+    let tree = harness.settle();
+    let field = bounds(&tree, "Find any object…", Role::Button).expect("the search field");
+    let reload = bounds(&tree, "Reload objects", Role::Button).expect("Reload");
+    let flat = bounds(&tree, "Flat", Role::RadioButton).expect("the switch");
+    assert!(
+        close(reload.center().y, flat.center().y),
+        "{reload:?} {flat:?}"
+    );
+    // The 16 pt icon in the 24 pt button: 4 from its edge.
+    assert!(
+        close(reload.right() - 4.0, field.right()),
+        "{reload:?} {field:?}"
+    );
+    assert!(flat.right() < reload.left());
+}
