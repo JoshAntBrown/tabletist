@@ -27,6 +27,10 @@ pub(crate) trait Adapter {
 
     async fn list_objects(&self, schema: &str) -> Result<Vec<ObjectInfo>>;
 
+    /// The objects of each of `schemas`, in their order, in as few
+    /// questions as the engine takes.
+    async fn list_objects_in(&self, schemas: &[String]) -> Result<Vec<crate::SchemaObjects>>;
+
     async fn describe(&self, object: &ObjectRef) -> Result<Structure>;
 
     async fn ddl(&self, object: &ObjectRef) -> Result<Ddl>;

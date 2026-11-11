@@ -382,37 +382,22 @@ fn quick_open_finds_a_table_of_a_schema_never_unfolded() {
         request,
         result: Ok(vec!["archive".into(), "main".into(), "pg_catalog".into()]),
     }));
-    // `archive` is asked for, though folded; the system's schema is not.
-    let asked: Vec<(SessionId, RequestId, String)> = harness
-        .app
-        .backend
-        .sent
-        .iter()
-        .filter_map(|command| match command {
-            Command::ListObjects {
-                session,
-                request,
-                schema,
-            } => Some((*session, *request, schema.clone())),
-            _ => None,
-        })
-        .collect();
-    let (session, request, _) = asked
-        .iter()
-        .rev()
-        .find(|(_, _, schema)| schema == "archive")
-        .cloned()
-        .expect("the folded schema's objects are asked for");
-    assert!(!asked.iter().any(|(_, _, schema)| schema == "pg_catalog"));
-    harness.app.apply(Action::Backend(Event::Objects {
+    // One listing asks for every folder not read yet: folded `archive`,
+    // and not the system's schema, nor `main`, which its own listing reads.
+    let (session, request, schemas) = all_asked(&harness).pop().expect("one listing");
+    assert_eq!(schemas, ["archive"]);
+    assert_eq!(all_asked(&harness).len(), 1);
+    harness.app.apply(Action::Backend(Event::AllObjects {
         session,
         request,
-        schema: "archive".into(),
-        result: Ok(vec![ObjectInfo {
-            name: "old_orders".into(),
-            kind: ObjectKind::Table,
-            estimated_rows: None,
-        }]),
+        result: Ok(vec![(
+            "archive".into(),
+            Ok(vec![ObjectInfo {
+                name: "old_orders".into(),
+                kind: ObjectKind::Table,
+                estimated_rows: None,
+            }]),
+        )]),
     }));
     assert!(!unfolded(&harness, tab, "archive"));
     assert!(!harness.has("old_orders, table"));
@@ -424,6 +409,75 @@ fn quick_open_finds_a_table_of_a_schema_never_unfolded() {
         .iter()
         .any(|label| label.contains("old_orders"));
     assert!(found, "quick open lists the folded schema's table");
+}
+
+/// The listings of every schema's objects the app sent.
+fn all_asked(harness: &Harness) -> Vec<(SessionId, RequestId, Vec<String>)> {
+    harness
+        .app
+        .backend
+        .sent
+        .iter()
+        .filter_map(|command| match command {
+            Command::ListAllObjects {
+                session,
+                request,
+                schemas,
+            } => Some((*session, *request, schemas.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A listing of every schema that fails says so on each folder that
+/// waited for it, and a schema whose own listing failed on its own.
+#[test]
+fn a_listing_of_every_schema_that_fails_says_so_on_its_folders() {
+    let (mut harness, tab) = schemas(Look::macos());
+    let session = harness.app.workspace(tab).unwrap().session;
+    harness.app.read_folders_for_test(tab);
+    let (_, request, asked) = all_asked(&harness).pop().expect("one listing");
+    assert_eq!(asked, ["archive", "staging"]);
+    let loading = |harness: &Harness, schema: &str| {
+        harness.app.workspace(tab).unwrap().tree.nodes[schema]
+            .objects
+            .is_loading()
+    };
+    assert!(loading(&harness, "archive") && loading(&harness, "staging"));
+    harness.app.apply(Action::Backend(Event::AllObjects {
+        session,
+        request,
+        result: Ok(vec![
+            ("archive".into(), Ok(Vec::new())),
+            ("staging".into(), Err(tabletist_db::Error::Cancelled)),
+        ]),
+    }));
+    let nodes = &harness.app.workspace(tab).unwrap().tree.nodes;
+    assert_eq!(nodes["archive"].objects.value.as_deref(), Some(&[][..]));
+    assert!(nodes["staging"].objects.error.is_some());
+    assert!(!loading(&harness, "staging"));
+
+    // Nothing is left to read but the one that failed; asked again, and
+    // failing as a whole, it fails `staging` alone.
+    harness
+        .app
+        .workspace_mut(tab)
+        .unwrap()
+        .tree
+        .nodes
+        .remove("staging");
+    harness.app.read_folders_for_test(tab);
+    let (_, request, asked) = all_asked(&harness).pop().expect("a second listing");
+    assert_eq!(asked, ["staging"]);
+    harness.app.apply(Action::Backend(Event::AllObjects {
+        session,
+        request,
+        result: Err(tabletist_db::Error::Cancelled),
+    }));
+    let nodes = &harness.app.workspace(tab).unwrap().tree.nodes;
+    assert!(nodes["staging"].objects.error.is_some());
+    assert!(nodes["archive"].objects.error.is_none());
+    assert!(!loading(&harness, "staging"));
 }
 
 /// Where the picked schema's name stood, the header says what the folders

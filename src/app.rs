@@ -4526,6 +4526,11 @@ impl App {
                 self.read_folders(tab);
                 self.send_databases_after_tree(tab);
             }
+            Event::AllObjects {
+                session,
+                request,
+                result,
+            } => self.objects_read(session, request, result),
             Event::Objects {
                 session,
                 request,

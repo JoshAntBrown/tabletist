@@ -24,10 +24,10 @@ use crate::agent::{Catalog, ColumnName, Limits, Read, Sources};
 use crate::script::retry_cancelled;
 use crate::{
     Access, CancelHandle, CancelInner, ChangeSet, ColumnClass, ColumnInfo, ColumnMeta, ConnectSpec,
-    Ddl, Dialect, Error, ForeignKeyInfo, IndexInfo, Lookup, LookupPage, MAX_LISTED, Named,
-    ObjectInfo, ObjectKind, ObjectRef, ReferencingKey, Result, RowPage, RowQuery, ScriptMode,
-    ScriptOutcome, Secrets, StopFlag, Structure, TlsMode, Value, ValueKind, WriteOutcome,
-    column_class,
+    Ddl, Dialect, Error, ForeignKeyInfo, IndexInfo, Lookup, LookupPage, MAX_LISTED,
+    MAX_LISTED_ACROSS, Named, ObjectInfo, ObjectKind, ObjectRef, ReferencingKey, Result, RowPage,
+    RowQuery, ScriptMode, ScriptOutcome, Secrets, StopFlag, Structure, TlsMode, Value, ValueKind,
+    WriteOutcome, column_class,
 };
 
 /// A column as `describe` reads it from `information_schema.columns`: its
@@ -282,19 +282,27 @@ impl Adapter for Conn {
             .await?;
         Ok(rows
             .into_iter()
-            .map(|(name, kind, estimate)| {
-                let view = kind.contains("VIEW");
-                ObjectInfo {
-                    name,
-                    kind: if view {
-                        ObjectKind::View
-                    } else {
-                        ObjectKind::Table
-                    },
-                    estimated_rows: if view { None } else { estimate },
-                }
-            })
+            .map(|(name, kind, estimate)| listed(name, &kind, estimate))
             .collect())
+    }
+
+    async fn list_objects_in(&self, schemas: &[String]) -> Result<Vec<crate::SchemaObjects>> {
+        let marks = vec!["?"; schemas.len()].join(", ");
+        let rows: Vec<(String, String, String, Option<u64>)> = self
+            .catalog(
+                &format!(
+                    "SELECT table_schema, table_name, table_type, table_rows \
+                     FROM information_schema.tables WHERE table_schema IN ({marks}) \
+                     ORDER BY table_schema, table_name LIMIT {MAX_LISTED_ACROSS}"
+                ),
+                schemas.to_vec(),
+            )
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(|(schema, name, kind, estimate)| (schema, listed(name, &kind, estimate)))
+            .collect();
+        Ok(crate::catalog::by_schema(schemas, rows))
     }
 
     async fn describe(&self, object: &ObjectRef) -> Result<Structure> {
@@ -1402,6 +1410,21 @@ fn params(values: &[Value]) -> Params {
         Params::Empty
     } else {
         Params::Positional(values.iter().map(to_mysql).collect())
+    }
+}
+
+/// A table or view as `information_schema.tables` lists it. A view has no
+/// estimate of its rows.
+fn listed(name: String, kind: &str, estimate: Option<u64>) -> ObjectInfo {
+    let view = kind.contains("VIEW");
+    ObjectInfo {
+        name,
+        kind: if view {
+            ObjectKind::View
+        } else {
+            ObjectKind::Table
+        },
+        estimated_rows: if view { None } else { estimate },
     }
 }
 

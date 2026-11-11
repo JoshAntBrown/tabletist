@@ -660,6 +660,15 @@ impl Adapter for Conn {
         }
     }
 
+    /// Schema by schema: the API lists the tables of one dataset.
+    async fn list_objects_in(&self, schemas: &[String]) -> Result<Vec<crate::SchemaObjects>> {
+        let mut lists = Vec::with_capacity(schemas.len());
+        for schema in schemas {
+            lists.push((schema.clone(), self.list_objects(schema).await));
+        }
+        Ok(lists)
+    }
+
     /// The table's schema as its structure. BigQuery has no indexes; its
     /// key constraints are unenforced and name no row, so none are read.
     async fn describe(&self, object: &ObjectRef) -> Result<Structure> {

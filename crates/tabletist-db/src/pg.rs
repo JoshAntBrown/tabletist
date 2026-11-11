@@ -16,10 +16,10 @@ use crate::adapter::Adapter;
 use crate::agent::{Catalog, ColumnName, Limits, Read, Sources};
 use crate::{
     Access, CancelHandle, CancelInner, ChangeSet, ColumnClass, ColumnInfo, ColumnMeta, ConnectSpec,
-    Ddl, Dialect, Error, ForeignKeyInfo, IndexInfo, Lookup, LookupPage, MAX_LISTED, Named,
-    ObjectInfo, ObjectKind, ObjectRef, ReferencingKey, Result, RowPage, RowQuery, ScriptMode,
-    ScriptOutcome, Secrets, Sql, StopFlag, Structure, Value, ValueKind, WriteOutcome,
-    value_from_pg_text,
+    Ddl, Dialect, Error, ForeignKeyInfo, IndexInfo, Lookup, LookupPage, MAX_LISTED,
+    MAX_LISTED_ACROSS, Named, ObjectInfo, ObjectKind, ObjectRef, ReferencingKey, Result, RowPage,
+    RowQuery, ScriptMode, ScriptOutcome, Secrets, Sql, StopFlag, Structure, Value, ValueKind,
+    WriteOutcome, value_from_pg_text,
 };
 use tokio_postgres::error::SqlState;
 use tokio_postgres_rustls::MakeRustlsConnect;
@@ -295,6 +295,23 @@ pub(crate) fn query_error(error: tokio_postgres::Error) -> Error {
 /// A value from a catalog row as `T`. A server (or proxy) that answers
 /// with another type or a NULL is a query error, not a panic: release
 /// builds abort on panic.
+/// A table or view as a listing's row has it from column `at` on: its
+/// name, its `relkind` and its `reltuples`.
+fn listed(row: &tokio_postgres::Row, at: usize) -> Result<ObjectInfo> {
+    let kind: String = column(row, at + 1)?;
+    let tuples: f64 = column(row, at + 2)?;
+    Ok(ObjectInfo {
+        name: column(row, at)?,
+        kind: match kind.as_str() {
+            "v" => ObjectKind::View,
+            "m" => ObjectKind::MaterializedView,
+            _ => ObjectKind::Table,
+        },
+        // -1 means never analyzed (PostgreSQL 14+).
+        estimated_rows: (tuples >= 0.0).then_some(tuples as u64),
+    })
+}
+
 fn column<'a, T: tokio_postgres::types::FromSql<'a>>(
     row: &'a tokio_postgres::Row,
     index: usize,
@@ -806,22 +823,28 @@ impl Adapter for Conn {
                 &[(&schema, Type::TEXT)],
             )
             .await?;
-        rows.iter()
-            .map(|row| {
-                let kind: String = column(row, 1)?;
-                let tuples: f64 = column(row, 2)?;
-                Ok(ObjectInfo {
-                    name: column(row, 0)?,
-                    kind: match kind.as_str() {
-                        "v" => ObjectKind::View,
-                        "m" => ObjectKind::MaterializedView,
-                        _ => ObjectKind::Table,
-                    },
-                    // -1 means never analyzed (PostgreSQL 14+).
-                    estimated_rows: (tuples >= 0.0).then_some(tuples as u64),
-                })
-            })
-            .collect()
+        rows.iter().map(|row| listed(row, 0)).collect()
+    }
+
+    async fn list_objects_in(&self, schemas: &[String]) -> Result<Vec<crate::SchemaObjects>> {
+        let rows = self
+            .catalog(
+                &format!(
+                    "SELECT n.nspname::text, c.relname::text, c.relkind::text, \
+                            c.reltuples::float8 \
+                     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                     WHERE n.nspname::text = ANY($1::text[]) \
+                       AND c.relkind IN ('r', 'p', 'f', 'v', 'm') \
+                     ORDER BY n.nspname, c.relname LIMIT {MAX_LISTED_ACROSS}"
+                ),
+                &[(&schemas, Type::TEXT_ARRAY)],
+            )
+            .await?;
+        let rows = rows
+            .iter()
+            .map(|row| Ok((column(row, 0)?, listed(row, 1)?)))
+            .collect::<Result<Vec<(String, ObjectInfo)>>>()?;
+        Ok(crate::catalog::by_schema(schemas, rows))
     }
 
     async fn ddl(&self, object: &ObjectRef) -> Result<Ddl> {
