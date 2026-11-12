@@ -95,6 +95,26 @@ async fn connections_report_mysql_and_list_databases_as_schemas() {
 }
 
 #[tokio::test]
+async fn several_schemas_are_listed_at_once_as_each_is_alone() {
+    let Some(connection) = connect().await else {
+        return;
+    };
+    let schemas: Vec<String> = ["tabletist", "no_such_schema", "billing"]
+        .map(String::from)
+        .to_vec();
+    let lists = connection.list_objects_in(&schemas).await.unwrap();
+    let named: Vec<&str> = lists.iter().map(|(schema, _)| schema.as_str()).collect();
+    assert_eq!(named, schemas, "one list for each schema, in their order");
+    for (schema, list) in &lists {
+        let alone = connection.list_objects(schema).await.unwrap();
+        assert_eq!(list.as_ref().unwrap(), &alone, "{schema}");
+    }
+    assert!(!lists[0].1.as_ref().unwrap().is_empty());
+    assert!(lists[1].1.as_ref().unwrap().is_empty(), "no such schema");
+    assert!(connection.list_objects_in(&[]).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn objects_have_kinds_and_estimates() {
     let Some(connection) = connect().await else {
         return;

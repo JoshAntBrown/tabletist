@@ -97,6 +97,13 @@ pub enum Command {
         request: RequestId,
         schema: String,
     },
+    /// List the objects of each of `schemas` at once, for a tree that
+    /// lists every schema: answered by one `Event::AllObjects`.
+    ListAllObjects {
+        session: SessionId,
+        request: RequestId,
+        schemas: Vec<String>,
+    },
     Describe {
         session: SessionId,
         request: RequestId,
@@ -370,6 +377,13 @@ pub enum Event {
         request: RequestId,
         schema: String,
         result: Result<Vec<ObjectInfo>, Error>,
+    },
+    /// The objects of each schema a `ListAllObjects` named, or why none
+    /// could be listed. A schema whose own listing failed says so.
+    AllObjects {
+        session: SessionId,
+        request: RequestId,
+        result: Result<Vec<tabletist_db::SchemaObjects>, Error>,
     },
     Structure {
         session: SessionId,
@@ -2339,6 +2353,7 @@ fn session_of(command: &Command) -> SessionId {
         | Command::Cancel { session, .. }
         | Command::ListSchemas { session, .. }
         | Command::ListObjects { session, .. }
+        | Command::ListAllObjects { session, .. }
         | Command::Describe { session, .. }
         | Command::ReadDdl { session, .. }
         | Command::FetchRows { session, .. }
@@ -2397,6 +2412,7 @@ fn request_of(command: &Command) -> Option<RequestId> {
     match command {
         Command::ListSchemas { request, .. }
         | Command::ListObjects { request, .. }
+        | Command::ListAllObjects { request, .. }
         | Command::Describe { request, .. }
         | Command::ReadDdl { request, .. }
         | Command::FetchRows { request, .. }
@@ -2450,6 +2466,13 @@ fn fail(outbox: &Outbox, command: Command, error: Error) {
             session,
             request,
             schema,
+            result: Err(error),
+        },
+        Command::ListAllObjects {
+            session, request, ..
+        } => Event::AllObjects {
+            session,
+            request,
             result: Err(error),
         },
         Command::Describe {
@@ -2677,6 +2700,20 @@ async fn run_session(
                     session: *session,
                     request: *request,
                     schema: schema.clone(),
+                    result,
+                });
+                lost
+            }
+            Command::ListAllObjects {
+                session,
+                request,
+                schemas,
+            } => {
+                let result = connection.list_objects_in(schemas).await;
+                let lost = lost_error(&result);
+                outbox.emit(Event::AllObjects {
+                    session: *session,
+                    request: *request,
                     result,
                 });
                 lost

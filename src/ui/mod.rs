@@ -149,6 +149,8 @@ mod tree_groups_tests;
 #[cfg(test)]
 mod tree_reload_tests;
 #[cfg(test)]
+mod tree_schemas_tests;
+#[cfg(test)]
 mod typing_settings_tests;
 #[cfg(test)]
 mod update_settings_tests;
@@ -12443,6 +12445,8 @@ value_tags   = true
     fn the_schema_menu_closes_on_a_pick_without_a_pointer() {
         let (mut harness, tab) = tree_harness();
         let workspace = harness.app.workspace_mut(tab).unwrap();
+        // The menu is there with `sidebar.schema_folders = false`.
+        workspace.tree.schema_folders = false;
         workspace.tree.schemas.value = Some(vec!["main".into(), "reports".into()]);
         harness.click("Schema");
         assert!(harness.has("reports"), "the menu lists the other schema");

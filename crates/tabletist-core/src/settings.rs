@@ -742,6 +742,9 @@ pub struct Settings {
     pub idle_disconnect: Idle,
     /// Show `pg_catalog`, `information_schema`, `mysql`, `sys` and friends.
     pub show_system_schemas: bool,
+    /// List every schema as a folder in the sidebar's tree, where there
+    /// is more than one. Off, a menu above the tree picks the one shown.
+    pub schema_folders: bool,
     /// The look: the OS's classic one or the Omarchy experience. `None`
     /// until the user sets it: the look the OS draws without one.
     #[serde(skip)]
@@ -861,6 +864,7 @@ pub enum Key {
     ConfirmCloseEdits,
     IdleDisconnect,
     ShowSystemSchemas,
+    SchemaFolders,
     /// `editor.sql_limit`, which versions before the Editor tab wrote:
     /// read where `editor.run.limit` is not, and taken out when that is
     /// written.
@@ -906,7 +910,7 @@ impl Key {
     /// In the order the file has them: a table's keys together.
     /// An old key comes before the one that took its place: the new one
     /// is read over it.
-    pub const ALL: [Key; 45] = [
+    pub const ALL: [Key; 46] = [
         Self::OnLaunch,
         Self::RestoreTabs,
         Self::PageSize,
@@ -919,6 +923,7 @@ impl Key {
         Self::ConfirmCloseEdits,
         Self::IdleDisconnect,
         Self::ShowSystemSchemas,
+        Self::SchemaFolders,
         Self::OldSqlLimit,
         Self::OldSqlTimeoutSecs,
         Self::NewTab,
@@ -969,6 +974,7 @@ impl Key {
             Self::ConfirmCloseEdits => ("safety", "confirm_close_edits"),
             Self::IdleDisconnect => ("safety", "idle_disconnect"),
             Self::ShowSystemSchemas => ("sidebar", "show_system_schemas"),
+            Self::SchemaFolders => ("sidebar", "schema_folders"),
             Self::OldSqlLimit => ("editor", "sql_limit"),
             Self::OldSqlTimeoutSecs => ("editor", "sql_timeout_secs"),
             Self::NewTab => ("editor.run", "new_tab"),
@@ -2631,6 +2637,9 @@ impl Settings {
             Key::ConfirmCloseEdits => self.confirm_close_edits.to_string(),
             Key::IdleDisconnect => toml_string(self.idle_disconnect.name()),
             Key::ShowSystemSchemas => self.show_system_schemas.to_string(),
+            // Written only once it is turned off: folders are the rule.
+            Key::SchemaFolders if self.schema_folders => return None,
+            Key::SchemaFolders => self.schema_folders.to_string(),
             // Read, never written: the new key is.
             Key::OldSqlLimit | Key::OldSqlTimeoutSecs => return None,
             Key::SqlLimit => self.sql_limit.to_string(),
@@ -2957,6 +2966,7 @@ impl Settings {
                 .and_then(Idle::from_name)
                 .map(|choice| self.idle_disconnect = choice),
             Key::ShowSystemSchemas => flag.map(|flag| self.show_system_schemas = flag),
+            Key::SchemaFolders => flag.map(|flag| self.schema_folders = flag),
             // The old key kept at least a row, and 0 seconds waited forever.
             Key::OldSqlLimit => number.map(|number| self.sql_limit = number.max(1)),
             Key::OldSqlTimeoutSecs => number.map(|number| self.sql_timeout_secs = Some(number)),
@@ -3181,6 +3191,7 @@ impl Settings {
             Key::ConfirmCloseEdits => self.confirm_close_edits = other.confirm_close_edits,
             Key::IdleDisconnect => self.idle_disconnect = other.idle_disconnect,
             Key::ShowSystemSchemas => self.show_system_schemas = other.show_system_schemas,
+            Key::SchemaFolders => self.schema_folders = other.schema_folders,
             Key::OldSqlLimit | Key::SqlLimit => self.sql_limit = other.sql_limit,
             Key::OldSqlTimeoutSecs | Key::SqlTimeoutSecs => {
                 self.sql_timeout_secs = other.sql_timeout_secs
@@ -3270,6 +3281,7 @@ impl Default for Settings {
             confirm_close_edits: true,
             idle_disconnect: Idle::default(),
             show_system_schemas: false,
+            schema_folders: true,
             theme: Theme::Unset,
             ui_scale: UiScale::DEFAULT,
             font: None,
@@ -3570,6 +3582,7 @@ mod tests {
             confirm_close_edits: false,
             idle_disconnect: Idle::Hours4,
             show_system_schemas: true,
+            schema_folders: true,
             look: Some(LookChoice::Omarchy),
             theme: Theme::Pinned("My \"Nord\".json".into()),
             ui_scale: UiScale::of(1.25).unwrap(),
@@ -5631,5 +5644,20 @@ skip = \"0.4.0\"  # a version to stop offering
         let loaded = Settings::from_toml("[appearance]\ninterface_size = \"huge\"\n");
         assert_eq!(loaded.invalid, vec![2]);
         assert_eq!(loaded.migrated(), Vec::<Key>::new());
+    }
+
+    #[test]
+    fn schema_folders_is_written_only_once_it_is_off() {
+        let settings = Settings::default();
+        assert!(settings.schema_folders);
+        assert_eq!(settings.written(Key::SchemaFolders), None);
+        assert!(!settings.to_toml().contains("schema_folders"));
+
+        let loaded = Settings::from_toml("[sidebar]\nschema_folders = false\n");
+        assert!(!loaded.settings.schema_folders);
+        let text = loaded.settings.to_toml();
+        assert!(text.contains("\nschema_folders = false\n"), "{text}");
+        let back = Settings::from_toml("[sidebar]\nschema_folders = true\n");
+        assert!(back.settings.schema_folders);
     }
 }

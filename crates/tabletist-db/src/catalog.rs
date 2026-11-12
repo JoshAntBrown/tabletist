@@ -4,6 +4,27 @@
 /// server with a huge catalog cannot make the sidebar hold it all.
 pub const MAX_LISTED: u32 = 10_000;
 
+/// The most objects one listing of several schemas returns, in all.
+pub const MAX_LISTED_ACROSS: u32 = 100_000;
+
+/// The objects of one schema of several asked for at once, or why they
+/// could not be listed.
+pub type SchemaObjects = (String, Result<Vec<ObjectInfo>, crate::Error>);
+
+/// `rows` (each an object with its schema's name) as a list for each of
+/// `schemas`, in their order: a schema with no row has an empty one.
+pub(crate) fn by_schema(schemas: &[String], rows: Vec<(String, ObjectInfo)>) -> Vec<SchemaObjects> {
+    let mut lists: std::collections::HashMap<String, Vec<ObjectInfo>> =
+        std::collections::HashMap::new();
+    for (schema, object) in rows {
+        lists.entry(schema).or_default().push(object);
+    }
+    schemas
+        .iter()
+        .map(|schema| (schema.clone(), Ok(lists.remove(schema).unwrap_or_default())))
+        .collect()
+}
+
 /// A table, view or materialized view, by schema and name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjectRef {
@@ -212,6 +233,43 @@ impl Structure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rows_of_several_schemas_are_a_list_for_each_asked() {
+        let object = |name: &str| ObjectInfo {
+            name: name.into(),
+            kind: ObjectKind::Table,
+            estimated_rows: None,
+        };
+        let schemas = [
+            "public".to_owned(),
+            "empty".to_owned(),
+            "archive".to_owned(),
+        ];
+        let lists = by_schema(
+            &schemas,
+            vec![
+                ("archive".into(), object("old_orders")),
+                ("public".into(), object("authors")),
+                ("public".into(), object("books")),
+                ("unasked".into(), object("stray")),
+            ],
+        );
+        let names = |at: usize| -> Vec<String> {
+            let list = lists[at].1.as_ref().unwrap();
+            list.iter().map(|object| object.name.clone()).collect()
+        };
+        assert_eq!(lists.len(), 3);
+        assert_eq!(
+            (lists[0].0.as_str(), names(0)),
+            ("public", vec!["authors".into(), "books".into()])
+        );
+        assert_eq!((lists[1].0.as_str(), names(1)), ("empty", Vec::new()));
+        assert_eq!(
+            (lists[2].0.as_str(), names(2)),
+            ("archive", vec!["old_orders".into()])
+        );
+    }
 
     fn key(on_delete: &str) -> ReferencingKey {
         ReferencingKey {

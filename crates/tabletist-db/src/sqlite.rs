@@ -1070,6 +1070,15 @@ impl Adapter for Conn {
         .await
     }
 
+    /// Schema by schema: each attached file keeps its own `sqlite_master`.
+    async fn list_objects_in(&self, schemas: &[String]) -> Result<Vec<crate::SchemaObjects>> {
+        let mut lists = Vec::with_capacity(schemas.len());
+        for schema in schemas {
+            lists.push((schema.clone(), self.list_objects(schema).await));
+        }
+        Ok(lists)
+    }
+
     async fn describe(&self, object: &ObjectRef) -> Result<Structure> {
         let object = object.clone();
         self.run(move |connection| {
@@ -3031,6 +3040,22 @@ mod tests {
     async fn schemas_are_main_and_attached_databases_without_temp() {
         let (conn, _dir) = fixture().await;
         assert_eq!(conn.list_schemas().await.unwrap(), vec!["main".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn several_schemas_are_listed_each_for_itself() {
+        let (conn, _dir) = fixture().await;
+        let schemas = ["main".to_owned(), "not_attached".to_owned()];
+        let lists = conn.list_objects_in(&schemas).await.unwrap();
+        assert_eq!(lists.len(), 2);
+        assert_eq!(lists[0].0, "main");
+        assert_eq!(
+            lists[0].1.as_ref().unwrap(),
+            &conn.list_objects("main").await.unwrap()
+        );
+        // A schema that cannot be listed says so, and `main` is listed.
+        assert_eq!(lists[1].0, "not_attached");
+        assert!(lists[1].1.is_err());
     }
 
     #[tokio::test]

@@ -110,6 +110,26 @@ async fn objects_have_kinds_and_estimates() {
 }
 
 #[tokio::test]
+async fn several_schemas_are_listed_at_once_as_each_is_alone() {
+    let Some(connection) = connect().await else {
+        return;
+    };
+    let schemas: Vec<String> = ["public", "no_such_schema", "information_schema"]
+        .map(String::from)
+        .to_vec();
+    let lists = connection.list_objects_in(&schemas).await.unwrap();
+    let named: Vec<&str> = lists.iter().map(|(schema, _)| schema.as_str()).collect();
+    assert_eq!(named, schemas, "one list for each schema, in their order");
+    for (schema, list) in &lists {
+        let alone = connection.list_objects(schema).await.unwrap();
+        assert_eq!(list.as_ref().unwrap(), &alone, "{schema}");
+    }
+    assert!(!lists[0].1.as_ref().unwrap().is_empty());
+    assert!(lists[1].1.as_ref().unwrap().is_empty(), "no such schema");
+    assert!(connection.list_objects_in(&[]).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn a_wrong_password_is_an_auth_error() {
     let Some((spec, _)) = spec() else { return };
     let secrets = Secrets {

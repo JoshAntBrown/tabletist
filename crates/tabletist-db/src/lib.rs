@@ -47,8 +47,8 @@ pub type DatabaseProbe =
 
 use adapter::Adapter;
 pub use catalog::{
-    Acts, ColumnInfo, ForeignKeyInfo, IndexInfo, MAX_LISTED, ObjectInfo, ObjectKind, ObjectRef,
-    ReferencingKey, Structure,
+    Acts, ColumnInfo, ForeignKeyInfo, IndexInfo, MAX_LISTED, MAX_LISTED_ACROSS, ObjectInfo,
+    ObjectKind, ObjectRef, ReferencingKey, SchemaObjects, Structure,
 };
 pub use class::{ColumnClass, Temporal, column_class, temporal};
 pub use ddl::Ddl;
@@ -402,6 +402,23 @@ impl Connection {
             Inner::Postgres(conn) => conn.list_objects(schema).await,
             Inner::MySql(conn) => conn.list_objects(schema).await,
             Inner::BigQuery(conn) => conn.list_objects(schema).await,
+        }
+    }
+
+    /// The tables and views of each of `schemas`, in their order: what a
+    /// tree that lists every schema reads at once. PostgreSQL and MySQL
+    /// answer in one question, with at most `MAX_LISTED_ACROSS` objects
+    /// in all; SQLite and BigQuery are asked schema by schema, and one
+    /// that fails says so for itself.
+    pub async fn list_objects_in(&self, schemas: &[String]) -> Result<Vec<SchemaObjects>> {
+        if schemas.is_empty() {
+            return Ok(Vec::new());
+        }
+        match &self.inner {
+            Inner::Sqlite(conn) => conn.list_objects_in(schemas).await,
+            Inner::Postgres(conn) => conn.list_objects_in(schemas).await,
+            Inner::MySql(conn) => conn.list_objects_in(schemas).await,
+            Inner::BigQuery(conn) => conn.list_objects_in(schemas).await,
         }
     }
 

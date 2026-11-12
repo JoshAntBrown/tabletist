@@ -40,6 +40,7 @@ mod keyboard_tests;
 mod labels;
 mod menu;
 mod quick_open;
+mod schema_folders;
 #[cfg(test)]
 mod startup_tests;
 mod updates;
@@ -3206,8 +3207,10 @@ impl App {
                     workspace.spec.database = database;
                     // The other database's objects, listed as these were.
                     let flat = workspace.tree.flat;
+                    let folders = workspace.tree.schema_folders;
                     workspace.tree = Tree::default();
                     workspace.tree.flat = flat;
+                    workspace.tree.schema_folders = folders;
                     workspace.catalog_changed();
                     // The other database has other objects, but a SQL
                     // editor's text is the user's work: it stays, and so
@@ -3825,6 +3828,7 @@ impl App {
         workspace.full_precision = full_precision;
         workspace.zone = zone;
         workspace.tree.flat = flat;
+        workspace.tree.schema_folders = self.settings.schema_folders;
         workspace.row_panel = row_panel;
         entry.content = ConnTabContent::Workspace(Box::new(workspace));
         if let Some(kept) = tables {
@@ -4519,8 +4523,14 @@ impl App {
                 if let Some(schema) = default {
                     self.expand_schema(tab, &schema);
                 }
+                self.read_folders(tab);
                 self.send_databases_after_tree(tab);
             }
+            Event::AllObjects {
+                session,
+                request,
+                result,
+            } => self.objects_read(session, request, result),
             Event::Objects {
                 session,
                 request,
@@ -5854,6 +5864,26 @@ impl App {
                 if let ConnTabContent::Workspace(workspace) = &mut tab.content {
                     workspace.catalog_changed();
                 }
+            }
+        }
+        if old.schema_folders != self.settings.schema_folders {
+            let folders = self.settings.schema_folders;
+            for tab in &mut self.tabs {
+                if let ConnTabContent::Workspace(workspace) = &mut tab.content {
+                    workspace.tree.schema_folders = folders;
+                }
+            }
+        }
+        if (old.schema_folders, old.show_system_schemas)
+            != (
+                self.settings.schema_folders,
+                self.settings.show_system_schemas,
+            )
+        {
+            // Folders that were not there before: their objects are read.
+            let tabs: Vec<ConnTabId> = self.tabs.iter().map(|tab| tab.id).collect();
+            for tab in tabs {
+                self.read_folders(tab);
             }
         }
         if (old.sql_limit, old.sql_timeout_secs)
@@ -7579,6 +7609,13 @@ impl App {
             return;
         };
         workspace.tree.reveal(&object);
+        // Its schema's folder too, where the tree lists every schema.
+        if workspace.tree.schema_folders {
+            self.expand_schema(tab, &object.schema);
+        }
+        let Some(workspace) = self.workspace_mut(tab) else {
+            return;
+        };
         let existing = workspace
             .object_tabs_mut()
             .find(|o| o.object == object)
@@ -7857,7 +7894,8 @@ impl App {
         }
     }
 
-    /// Folds every group of the schema the sidebar shows, or unfolds them
+    /// Folds every group of the schema the sidebar shows (of each unfolded
+    /// schema, where it lists them all), or unfolds them
     /// all: those a filter hides too, so they are as asked once it is
     /// cleared. `show_system` is the setting that lists the system's
     /// schemas.
@@ -7865,25 +7903,25 @@ impl App {
         let Some(workspace) = self.workspace_mut(tab) else {
             return;
         };
-        let Some(schema) = workspace.tree.shown_schema(workspace.driver, show_system) else {
-            return;
-        };
-        let Some(node) = workspace.tree.nodes.get_mut(&schema) else {
-            return;
-        };
-        let objects: Vec<&tabletist_db::ObjectInfo> = node.objects.value.iter().flatten().collect();
-        let prefixes: Vec<String> = crate::model::group_objects(&objects)
-            .into_iter()
-            .filter_map(|entry| match entry {
-                crate::model::Entry::Group { prefix, .. } => Some(prefix),
-                crate::model::Entry::Object(_) => None,
-            })
-            .collect();
-        for prefix in prefixes {
-            if open {
-                node.open_groups.insert(prefix);
-            } else {
-                node.open_groups.remove(&prefix);
+        for schema in workspace.tree.group_schemas(workspace.driver, show_system) {
+            let Some(node) = workspace.tree.nodes.get_mut(&schema) else {
+                continue;
+            };
+            let objects: Vec<&tabletist_db::ObjectInfo> =
+                node.objects.value.iter().flatten().collect();
+            let prefixes: Vec<String> = crate::model::group_objects(&objects)
+                .into_iter()
+                .filter_map(|entry| match entry {
+                    crate::model::Entry::Group { prefix, .. } => Some(prefix),
+                    crate::model::Entry::Object(_) => None,
+                })
+                .collect();
+            for prefix in prefixes {
+                if open {
+                    node.open_groups.insert(prefix);
+                } else {
+                    node.open_groups.remove(&prefix);
+                }
             }
         }
     }
@@ -7895,6 +7933,10 @@ impl App {
                 tab,
                 schema: schema.clone(),
                 prefix: prefix.clone(),
+            }),
+            TreeNode::Schema(schema) => self.apply(Action::ToggleSchema {
+                tab,
+                schema: schema.clone(),
             }),
             TreeNode::Object(..) | TreeNode::Empty(_) => {}
         }
@@ -18612,9 +18654,12 @@ masked = ["orders.email"]
         fn tree_tab(harness: &mut Harness) -> ConnTabId {
             let tab = harness.connect_fake();
             // Two schemas; the first shown, with a folded group of two
-            // objects and one object on its own.
-            harness.app.workspace_mut(tab).unwrap().tree.schemas.value =
-                Some(vec!["main".into(), "temp".into()]);
+            // objects and one object on its own. One schema at a time, as
+            // `sidebar.schema_folders = false` has it: these tests walk the
+            // rows of the schema shown.
+            let tree = &mut harness.app.workspace_mut(tab).unwrap().tree;
+            tree.schema_folders = false;
+            tree.schemas.value = Some(vec!["main".into(), "temp".into()]);
             with_objects(
                 harness,
                 tab,
