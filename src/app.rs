@@ -4523,8 +4523,10 @@ impl App {
                 if let Some(schema) = default {
                     self.expand_schema(tab, &schema);
                 }
-                self.read_folders(tab);
                 self.send_databases_after_tree(tab);
+                // Behind the databases, which the switcher waits for: the
+                // folded schemas' objects are read ahead of any need.
+                self.read_folders(tab);
             }
             Event::AllObjects {
                 session,

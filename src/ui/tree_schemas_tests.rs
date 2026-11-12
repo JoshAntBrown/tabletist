@@ -411,6 +411,48 @@ fn quick_open_finds_a_table_of_a_schema_never_unfolded() {
     assert!(found, "quick open lists the folded schema's table");
 }
 
+/// A connect's databases are listed once the schema the tab starts on
+/// is asked for, and before the folded schemas' objects, which nothing
+/// waits for.
+#[test]
+fn the_databases_are_listed_before_the_folded_schemas_objects() {
+    let mut harness = Harness::new();
+    let tab = harness.connect_fake();
+    let held = RequestId(9_000);
+    let workspace = harness.app.workspace_mut(tab).unwrap();
+    workspace.driver = Driver::Postgres;
+    workspace.databases.start(held);
+    workspace.databases_after_tree = Some(held);
+    harness.app.apply(Action::RefreshTree(tab));
+    let (session, request) = harness
+        .app
+        .backend
+        .sent
+        .iter()
+        .rev()
+        .find_map(|command| match command {
+            Command::ListSchemas { session, request } => Some((*session, *request)),
+            _ => None,
+        })
+        .expect("the schemas are asked for again");
+    let before = harness.app.backend.sent.len();
+    harness.app.apply(Action::Backend(Event::Schemas {
+        session,
+        request,
+        result: Ok(vec!["archive".into(), "main".into()]),
+    }));
+    let sent: Vec<&str> = harness.app.backend.sent[before..]
+        .iter()
+        .filter_map(|command| match command {
+            Command::ListDatabases { .. } => Some("databases"),
+            Command::ListAllObjects { .. } => Some("every schema's objects"),
+            _ => None,
+        })
+        .collect();
+    // `main`, unfolded, was asked for again with the schemas.
+    assert_eq!(sent, ["databases", "every schema's objects"]);
+}
+
 /// The listings of every schema's objects the app sent.
 fn all_asked(harness: &Harness) -> Vec<(SessionId, RequestId, Vec<String>)> {
     harness
