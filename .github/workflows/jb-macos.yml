@@ -1,0 +1,50 @@
+# The fork's own build: the macOS app for Apple Silicon, from jb/main, and
+# nothing else. release.yml builds every platform, twice over for a
+# universal Mac binary; this builds one binary with a cache and wraps it.
+# Nothing is signed with a Developer ID or published: the DMG is an
+# artifact of the run. It starts on each push to jb/main, and by hand once
+# this file is on the default branch.
+name: jb macOS app
+
+on:
+  push:
+    branches: [jb/main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push replaces the build of an older one.
+concurrency:
+  group: jb-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: macOS app (Apple Silicon)
+    # macos-latest is arm64. For an Intel Mac, an Intel runner (macos-15-intel).
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      # bundle.sh signs ad hoc without CODESIGN_IDENTITY, and dmg.sh leaves
+      # the DMG unsigned: the first open is by right-click, Open.
+      - name: App and DMG
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 |
+            jq -r '.packages[] | select(.name == "tabletist") | .version')"
+          mkdir -p dist
+          bash packaging/macos/bundle.sh target/release/tabletist dist/Tabletist.app "$version"
+          bash packaging/macos/dmg.sh dist/Tabletist.app \
+            "dist/tabletist-${version}-jb-${GITHUB_SHA::8}-macos-arm64.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tabletist-macos-arm64
+          path: dist/*.dmg
+          if-no-files-found: error
